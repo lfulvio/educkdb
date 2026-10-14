@@ -41,13 +41,20 @@
 -define(INT64_MAX,   9223372036854775807).
 -define(UINT64_MAX, 18446744073709551615).
 
+%% Since DuckDB 1.5, list and map literals and current_schemas() live in the
+%% core_functions extension, which isn't linked in (downloaded on first use).
+load_core_functions(Conn) ->
+    {ok, [], []} = educkdb:squery(Conn, "INSTALL core_functions; LOAD core_functions;"),
+    ok.
+
 educk_db_version_test() ->
     {ok, Db} = educkdb:open(":memory:"),
     {ok, Conn} = educkdb:connect(Db),
 
     ?assertEqual({ok,[{column, <<"library_version">>, varchar},
-                      {column, <<"source_id">>, varchar}
-                     ], [{<<"v1.1.3">>, <<"19864453f7">>}]},
+                      {column, <<"source_id">>, varchar},
+                      {column, <<"codename">>, varchar}
+                     ], [{<<"v1.5.6">>, <<"069cc9f">>, <<"Variegata">>}]},
                  educkdb:squery(Conn, <<"PRAGMA version;">>)),
 
     ok = educkdb:disconnect(Conn),
@@ -87,9 +94,9 @@ open_options_test() ->
     {ok, Db1} = educkdb:open(":memory:", #{threads => "2"}),
     ok = educkdb:close(Db1),
 
-    %% Check if error reporting works
-    {error, {open, "IO Error: The file \"README.md\" exists, but it is not a valid DuckDB database file!"}}
-        = educkdb:open("README.md", #{ access_mode => "READ_ONLY" }),
+    %% Check if error reporting works. The message holds the absolute path.
+    {error, {open, OpenError}} = educkdb:open("README.md", #{ access_mode => "READ_ONLY" }),
+    ?assertNotEqual(nomatch, string:find(OpenError, "README.md\" exists, but it is not a valid DuckDB database file!")),
 
     %% Check opening directory, this used to crash v0.7.0
     {error,{open,"IO Error: Could not read from file \".\": Is a directory"}}
@@ -215,8 +222,8 @@ parameter_name_and_type_test() ->
     {ok, P3} = educkdb:prepare(Conn, "select * from test where id = ?"),
     ?assertEqual(integer, educkdb:parameter_type(P3, 1)),
 
-    %% It is not possible to get the type of a named paramter
-    ?assertException(error, badarg, educkdb:parameter_type(P2, 1)),
+    %% Named parameters have a type too (since DuckDB 1.5)
+    ?assertEqual(integer, educkdb:parameter_type(P2, 1)),
 
     %% But it is possible to get the name of a positional parameter
     ?assertEqual(<<"1">>, educkdb:parameter_name(P3, 1)),
@@ -565,9 +572,9 @@ appender_create_test() ->
     {ok, Db} = educkdb:open(":memory:"),
     {ok, Conn} = educkdb:connect(Db),
 
-    ?assertEqual({error, {appender, "Table \"main.test\" could not be found"}},
+    ?assertEqual({error, {appender, "Table \".main.test\" could not be found"}},
                  educkdb:appender_create(Conn, undefined, <<"test">>)),
-    ?assertEqual({error, {appender, "Table \"x.test\" could not be found"}},
+    ?assertEqual({error, {appender, "Table \".x.test\" could not be found"}},
                  educkdb:appender_create(Conn, <<"x">>, <<"test">>)),
 
     {ok, _, _} = educkdb:squery(Conn, "create table test(a varchar(10), b integer);"),
@@ -946,6 +953,7 @@ yielding_test() ->
 current_schema_test() ->
     {ok, Db} = educkdb:open(":memory:"),
     {ok, Conn} = educkdb:connect(Db),
+    ok = load_core_functions(Conn),
 
     %% FYI, the result must be unnested first.
     Expected = {ok,[#column{ name = <<"current_schemas">>, type = varchar}],
@@ -1173,7 +1181,7 @@ hugeint_test() ->
     ?assertEqual({hugeint, 0, 1}, E), 
     ?assertEqual({hugeint, 0, 1111}, F), 
 
-    Expected1 = {ok,[#column{ name = <<"-(CAST(170141183460469231731687303715884105727 AS HUGEINT))">>,
+    Expected1 = {ok,[#column{ name = <<"-(CAST(170141183460469231731687303715884105727 AS \"HUGEINT\"))">>,
                               type = hugeint}],
                  [{{hugeint,-9223372036854775808,1}}]},
     ?assertMatch(Expected1, educkdb:squery(Conn, "SELECT -170141183460469231731687303715884105727::hugeint")),
@@ -1248,9 +1256,9 @@ blob_test() ->
 
     {ok, _, _} = educkdb:squery(Conn, "create table test(a blob);"),
 
-    {ok, [#column{ name = <<"''::BLOB">>, type = blob}], [ {<<>>} ] } = educkdb:squery(Conn, "select ''::blob"),
-    {ok, [#column{ name = <<"'1234'::BLOB">>, type = blob}], [ {<<"1234">>} ] } = educkdb:squery(Conn, "select '1234'::blob"),
-    {ok, [#column{ name = <<"'abcdefghijklmnopqrstuvwxyz'::BLOB">>, type = blob}], [ {<<"abcdefghijklmnopqrstuvwxyz">>} ] }
+    {ok, [#column{ name = <<"CAST('' AS \"BLOB\")">>, type = blob}], [ {<<>>} ] } = educkdb:squery(Conn, "select ''::blob"),
+    {ok, [#column{ name = <<"CAST('1234' AS \"BLOB\")">>, type = blob}], [ {<<"1234">>} ] } = educkdb:squery(Conn, "select '1234'::blob"),
+    {ok, [#column{ name = <<"CAST('abcdefghijklmnopqrstuvwxyz' AS \"BLOB\")">>, type = blob}], [ {<<"abcdefghijklmnopqrstuvwxyz">>} ] }
         = educkdb:squery(Conn, "select 'abcdefghijklmnopqrstuvwxyz'::blob"),
 
     {ok, _, _} = educkdb:squery(Conn, "insert into test values('00'::blob)"),
@@ -1278,7 +1286,7 @@ enum_test() ->
 
     {ok, _, _} = educkdb:squery(Conn, "CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple');"),
 
-    Expected1 = {ok,[#column{ name = <<"CAST('orange' AS rainbow)">>, type = enum}], [{<<"orange">>}]},
+    Expected1 = {ok,[#column{ name = <<"CAST('orange' AS \"rainbow\")">>, type = enum}], [{<<"orange">>}]},
     ?assertEqual(Expected1, educkdb:squery(Conn, "select 'orange'::rainbow")),
 
     Expected2 = {ok,[#column{ name = <<"b">>, type = enum}], [{<<"red">>}, {undefined}, {<<"orange">>}, {<<"yellow">>}, {<<"green">>}]},
@@ -1304,6 +1312,7 @@ enum_test() ->
 list_test() ->
     {ok, Db} = educkdb:open(":memory:"),
     {ok, Conn} = educkdb:connect(Db),
+    ok = load_core_functions(Conn),
 
     %% Simple lists
     ?assertMatch({ok, [#column{ name = <<"a">>, type = list}], [{[1,2,3,4]}]},
@@ -1330,6 +1339,7 @@ list_test() ->
 struct_test() ->
     {ok, Db} = educkdb:open(":memory:"),
     {ok, Conn} = educkdb:connect(Db),
+    ok = load_core_functions(Conn),
 
     ?assertEqual({ok,[#column{ name = <<"a">>, type = list}],
                      [{[#{<<"x">> => 1,<<"y">> => 2,<<"z">> => 3},
@@ -1368,6 +1378,7 @@ struct_table_test() ->
 map_test() ->
     {ok, Db} = educkdb:open(":memory:"),
     {ok, Conn} = educkdb:connect(Db),
+    ok = load_core_functions(Conn),
 
     %%?assertMatch({ok, [#{ data := [ #map{ keys = [1, 5, 2, 12],
     %%                                      values = [<<"a">>, <<"e">>, <<"b">>, <<"c">>]

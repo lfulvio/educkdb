@@ -10,6 +10,8 @@ priv
 _build
 c_src/**/*.d
 erl_crash.dump
+*.log
+.tool-versions
 tags
 doc/*
 !doc/style.css

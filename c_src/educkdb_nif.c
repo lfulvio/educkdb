@@ -227,8 +227,11 @@ duckdb_type_name(duckdb_type t) {
         case DUCKDB_TYPE_BIT:          return "bit";
         case DUCKDB_TYPE_TIME_TZ:      return "time_tz";
         case DUCKDB_TYPE_TIMESTAMP_TZ: return "timestamp_tz";
-        case DUCKDB_TYPE_VARINT:       return "varint";
+        case DUCKDB_TYPE_BIGNUM:       return "bignum";
         case DUCKDB_TYPE_SQLNULL:      return "sqlnull";
+        case DUCKDB_TYPE_TIME_NS:      return "time_ns";
+        case DUCKDB_TYPE_GEOMETRY:     return "geometry";
+        case DUCKDB_TYPE_VARIANT:      return "variant";
         case DUCKDB_TYPE_STRING_LITERAL:      return "string_literal";
         case DUCKDB_TYPE_INTEGER_LITERAL:      return "integer_literal";
     }
@@ -268,6 +271,9 @@ duckdb_statement_type_name(duckdb_statement_type t) {
         case DUCKDB_STATEMENT_TYPE_ATTACH: return "attach";
         case DUCKDB_STATEMENT_TYPE_DETACH: return "detach";
         case DUCKDB_STATEMENT_TYPE_MULTI: return "multi";
+        case DUCKDB_STATEMENT_TYPE_COPY_DATABASE: return "copy_database";
+        case DUCKDB_STATEMENT_TYPE_UPDATE_EXTENSIONS: return "update_extensions";
+        case DUCKDB_STATEMENT_TYPE_MERGE_INTO: return "merge_into";
     }
 
     // When we are missing a DUCKDB_STATEMENT TYPE;
@@ -1186,8 +1192,17 @@ internal_extract_data(ErlNifEnv *env, duckdb_vector vector, duckdb_logical_type 
         case DUCKDB_TYPE_ANY:
             return extract_data_no_extract(env, "any", offset, count);
 
-        case DUCKDB_TYPE_VARINT:
-            return extract_data_no_extract(env, "varint", offset, count);
+        case DUCKDB_TYPE_BIGNUM:
+            return extract_data_no_extract(env, "bignum", offset, count);
+
+        case DUCKDB_TYPE_TIME_NS:
+            return extract_data_no_extract(env, "time_ns", offset, count);
+
+        case DUCKDB_TYPE_GEOMETRY:
+            return extract_data_no_extract(env, "geometry", offset, count);
+
+        case DUCKDB_TYPE_VARIANT:
+            return extract_data_no_extract(env, "variant", offset, count);
 
         case DUCKDB_TYPE_STRING_LITERAL:
             return extract_data_string_literal(env, (duckdb_string_t *) data, validity_mask, offset, count);
