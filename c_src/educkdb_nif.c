@@ -279,18 +279,21 @@ handle_query_error(ErlNifEnv *env, educkdb_result *result) {
     /* Don't pass errors as a result data structure, but as an error tuple
      * with the error message in it.
      */
-    const char *error_msg = duckdb_result_error(&(result->result)); 
+    const char *error_msg = duckdb_result_error(&(result->result));
+    ERL_NIF_TERM reason;
+
+    /* check if there is an error message, return {error, unknown} otherwise.
+     * The message belongs to the result: copy it before releasing the
+     * result, which may destroy it. */
+    if(error_msg == NULL) {
+        reason = make_atom(env, "unknown");
+    } else {
+        reason = enif_make_tuple2(env, make_atom(env, "result"),
+                enif_make_string(env, error_msg, ERL_NIF_LATIN1));
+    }
     enif_release_resource(result);
 
-    /* check if there is an error message, return {error, unknown} otherwise */
-    if(error_msg == NULL) {
-        return enif_make_tuple2(env, atom_error, make_atom(env, "unknown"));
-    } 
-
-    ERL_NIF_TERM erl_error_msg = enif_make_string(env, error_msg, ERL_NIF_LATIN1);
-    return enif_make_tuple2(env, atom_error,
-            enif_make_tuple2(env,
-                make_atom(env, "result"), erl_error_msg));
+    return enif_make_tuple2(env, atom_error, reason);
 } 
 
 /*

@@ -166,6 +166,16 @@ chunk_test() ->
 
     ok.
 
+%% The error message belongs to the DuckDB result: the NIF must copy it
+%% before releasing the result. Reading it afterwards returned garbage
+%% (e.g. {result, "Í"}) once the freed memory got reused, hence the loop.
+query_error_message_test() ->
+    {ok, Db} = educkdb:open(":memory:"),
+    {ok, Conn} = educkdb:connect(Db),
+    Expected = {error, {result, "Parser Error: syntax error at or near \"SELEC\"\n\nLINE 1: SELEC 1\n        ^"}},
+    [?assertEqual(Expected, educkdb:query(Conn, "SELEC 1")) || _ <- lists:seq(1, 2000)],
+    ok.
+
 prepare_error_test() ->
     Query = "this is a syntax error;",
     {ok, Db} = educkdb:open(":memory:"),
